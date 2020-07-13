@@ -14,110 +14,15 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import utils
 import os
-
+from dvae import dVAE
+from vae import VAE
 torch.device("cuda")
 torch.set_default_tensor_type('torch.cuda.FloatTensor')
 transform = transforms.ToTensor()
-
-
-# define the NN architecture
-
-class dVAE_Encoder(nn.Module):
-
-    def __init__(self):
-        super(dVAE_Encoder, self).__init__()
-        self.conv1 = nn.Conv2d(4, 8, 6, stride=1, dilation=1, padding=1)
-        self.conv2 = nn.Conv2d(8, 16, 5, stride=2, dilation=2, padding=1)
-        self.conv3 = nn.Conv2d(16, 16, 6, stride=1, dilation=2, padding=1)
-        self.conv4 = nn.Conv2d(16, 16, 5, stride=3, dilation=2, padding=1)
-
-        self.bn1 = nn.BatchNorm2d(8)
-        self.bn2 = nn.BatchNorm2d(16)
-        self.bn3 = nn.BatchNorm2d(16)
-        self.bn4 = nn.BatchNorm2d(16)
-
-    def forward(self, x):
-        x = x.float().cuda()
-        x = self.conv1(x)
-        x = self.bn1(x)
-        # print(x.shape)
-        x = self.conv2(F.leaky_relu(x))
-        x = self.bn2(x)
-        # print(x.shape)
-        x = self.conv3(F.leaky_relu(x))
-        x = self.bn3(x)
-        # print(x.shape)
-        x = self.conv4(F.leaky_relu(x))
-        x = self.bn4(x)
-        # print(x.shape)
-        # print("---------------------------------")
-        # print(x.size())
-        return x
-
-
-class dVAE_Decoder(nn.Module):
-
-    def __init__(self):
-        super(dVAE_Decoder, self).__init__()
-        self.conv1 = nn.ConvTranspose2d(8, 4, 6, stride=1, dilation=1, padding=1)
-        self.conv2 = nn.ConvTranspose2d(16, 8, 5, stride=2, dilation=2, padding=1)
-        self.conv3 = nn.ConvTranspose2d(16, 16, 6, stride=1, dilation=2, padding=1)
-        self.conv4 = nn.ConvTranspose2d(16, 16, 5, stride=3, dilation=2, padding=1)
-
-        self.bn1 = nn.BatchNorm2d(4)
-        self.bn2 = nn.BatchNorm2d(8)
-        self.bn3 = nn.BatchNorm2d(16)
-        self.bn4 = nn.BatchNorm2d(16)
-
-    def forward(self, x):
-        x = x.float().cuda()
-        x = self.conv4(x)
-        x = self.bn4(x)
-        # print(x.shape)
-        x = self.conv3(F.leaky_relu(x))
-        x = self.bn3(x)
-        # print(x.shape)
-        x = self.conv2(F.leaky_relu(x))
-        x = self.bn2(x)
-        # print(x.shape)
-        x = self.conv1(F.leaky_relu(x))
-        x = self.bn1(x)
-        # print(x.shape)
-        # print(x.size())
-        return x
-
-
-class dVAE(nn.Module):
-    def __init__(self):
-        super(dVAE, self).__init__()
-        self.encoder = dVAE_Encoder()
-
-        self.conv_mu = nn.Conv2d(16, 16, 3, stride=1, dilation=1)
-        self.conv_logvar = nn.Conv2d(16, 16, 3, stride=1, dilation=1)
-
-        self.decoder = dVAE_Decoder()
-
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + eps * std
-
-    def forward(self, x):
-        x = x.float().cuda()
-        latent = self.encoder(x)
-
-        mu = self.conv_mu(latent)
-        logvar = self.conv_logvar(latent)
-
-        z = self.reparameterize(mu, logvar)
-        answer = self.decoder(z)
-        return answer, mu, logvar
-
-    import torch
-    from torch.utils import data
-    import random
-    from torch.utils.data import dataloader, random_split
-
+import torch
+from torch.utils import data
+import random
+from torch.utils.data import dataloader, random_split
 
 if __name__ == '__main__':
 
@@ -127,15 +32,17 @@ if __name__ == '__main__':
     patient_folders = [os.path.join(roots[0], p) for p in os.listdir(roots[0])] + \
                       [os.path.join(roots[1], p) for p in os.listdir(roots[1])]
 
-    data_full = utils.DataLoader.download_data(patient_folders)
+    # data_full = utils.DataLoader.download_data(patient_folders)
 
     # data_full = np.load("dataset_healthy.npy")
-    train_data, valid_data, test_data = utils.PreProcessor.split(data_full, True)
+    # train_data, valid_data, test_data = utils.PreProcessor.split(data_full, True)
 
-    # train_data, valid_data, test_data = np.load("E:\Lab\Lab_VDA_Local\dataset_split.npy", allow_pickle=True)
+    train_data, valid_data, test_data = np.load("E:\\Lab\\resources\\dataset_split.npy", allow_pickle=True)
+    train_data_aug = np.load("E:\\Lab\\resources\\dataset_healthy_aug.npy", allow_pickle=True)
+    train_data = np.array((train_data, train_data_aug))
+    train_data = np.swapaxes(train_data, 0, 1)
 
     batch_size = 8
-
     train_dataloader = torch.utils.data.DataLoader(train_data[0:100], batch_size=batch_size, shuffle=True)
     valid_dataloader = torch.utils.data.DataLoader(valid_data[0:50], batch_size=batch_size, shuffle=True)
     test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True)
@@ -160,26 +67,28 @@ if __name__ == '__main__':
         ###################
         # train the model #
         ###################
-        for data in train_dataloader:
-            # _ stands in for labels, here
-            # no need to flatten images
-            images = data.float()
-            # clear the gradients of all optimized variables
+        for batch_id, xy in enumerate(train_dataloader):
+            x = xy[:, 0, :, :]
+            y = xy[:, 1, :, :]
             optimizer.zero_grad()
+            x = x.float().cuda()
+            y = y.float().cuda()
+
             # forward pass: compute predicted outputs by passing inputs to the model
-            images.cuda()
-            outputs, _, _ = model(images)
+            outputs, _, _ = model(x)
+
+            x = x.cpu().detach().numpy()
             # calculate the loss
             outputs = F.pad(outputs, (8, 8, 8, 8, 0, 0, 0, 0), mode='constant', value=0)
-            images.to(torch.device("cuda:0"))
-            outputs.to(torch.device("cuda:0"))
-            loss = criterion(outputs, images)
+            y.cuda()
+            outputs.cuda()
+            loss = criterion(outputs, y)
             # backward pass: compute gradient of the loss with respect to model parameters
             loss.backward()
             # perform a single optimization step (parameter update)
             optimizer.step()
             # update running training loss
-            train_loss += loss.item() * images.size(0)
+            train_loss += loss.item() * y.size(0)
 
         # print avg training statistics
         train_loss = train_loss / len(train_dataloader)
@@ -191,20 +100,24 @@ if __name__ == '__main__':
             with torch.no_grad():
                 valid_loss = []
                 current_valid_loss = 0.0
-                for data in valid_dataloader:
-                    images = data.float()
+                for batch_id, xy in enumerate(valid_dataloader):
+                    x = xy[:, 0, :, :]
+                    y = xy[:, 1, :, :]
                     optimizer.zero_grad()
-                    images.cuda()
-                    outputs, _, _ = model(images)
+                    x = x.float().cuda()
+                    y = y.float().cuda()
 
-                    # noinspection PyTypeChecker
+                    # forward pass: compute predicted outputs by passing inputs to the model
+                    outputs, _, _ = model(x)
+
+                    x = x.cpu().detach().numpy()
+                    # calculate the loss
                     outputs = F.pad(outputs, (8, 8, 8, 8, 0, 0, 0, 0), mode='constant', value=0)
-                    images.to(torch.device("cuda:0"))
-                    outputs.to(torch.device("cuda:0"))
-                    loss = criterion(outputs, images)
-                    loss.backward()
-                    optimizer.step()
-                    current_valid_loss += loss.item() * images.size(0)
+                    y.cuda()
+                    outputs.cuda()
+                    loss = criterion(outputs, y)
+
+                    current_valid_loss += loss.item() * y.size(0)
                     valid_loss.append(current_valid_loss)
             # noinspection PyUnresolvedReferences
             torch.save({

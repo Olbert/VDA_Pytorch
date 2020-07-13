@@ -40,180 +40,21 @@ def save100_images():
 
     for i in range(0,100):
         scipy.misc.imsave('E:\Lab\images\img_0_'+str(i)+'.jpg', train_data[i,0])
-        scipy.misc.imsave('E:\Lab\images\img_1_'+str(i)+'.jpg', train_data[i,0])
-        scipy.misc.imsave('E:\Lab\images\img_2_'+str(i)+'.jpg', train_data[i,0])
-        scipy.misc.imsave('E:\Lab\images\img_3_'+str(i)+'.jpg', train_data[i,0])
+        scipy.misc.imsave('E:\Lab\images\img_1_'+str(i)+'.jpg', train_data[i,1])
+        scipy.misc.imsave('E:\Lab\images\img_2_'+str(i)+'.jpg', train_data[i,2])
+        scipy.misc.imsave('E:\Lab\images\img_3_'+str(i)+'.jpg', train_data[i,3])
+
+def save_images(file):
+    data = np.load(file)
+    for i in range(0,data.shape[0]):
+        scipy.misc.imsave('E:\\Lab\\images\\aug\\img_0_'+str(i)+'.jpg', data[i,0])
+        scipy.misc.imsave('E:\\Lab\\images\\aug\\img_1_'+str(i)+'.jpg', data[i,1])
+        scipy.misc.imsave('E:\\Lab\\images\\aug\\img_2_'+str(i)+'.jpg', data[i,2])
+        scipy.misc.imsave('E:\\Lab\\images\\aug\\img_3_'+str(i)+'.jpg', data[i,3])
 
 
 
-
-def load_3d_volume_as_array(filename):
-    if '.nii' in filename:
-        return load_nifty_volume_as_array(filename)
-    elif '.mha' in filename:
-        return load_mha_volume_as_array(filename)
-
-
-def load_mha_volume_as_array(filename):
-    img = sitk.ReadImage(filename)
-    nda = sitk.GetArrayFromImage(img)
-    return nda
-
-
-def load_nifty_volume_as_array(filename, with_header=False):
-    img = nibabel.load(filename)
-    data = img.get_data()
-    data = np.transpose(data, [2, 1, 0])
-    if (with_header):
-        return data, img.affine, img.header
-    else:
-        return data
-
-
-def download_data(folders, threshold=5000000, data="healthy", mode="full", save_method = "npy"):
-    train_imgs = []
-    count = 0
-    k =0
-    imgs = []
-    for patient_path in folders:
-
-        modalities = os.listdir(patient_path)
-
-        seg_img_name = [img for img in modalities if "seg.nii" in img][0]
-        seg_img = load_3d_volume_as_array(os.path.join(patient_path, seg_img_name))
-
-        num_layers = seg_img.shape[0]
-        seg_lyr_sums = [int(np.sum(img)) for img in seg_img]
-
-        modlt_imgs = []
-        for train_modlt in sorted(list(set(modalities) - set([seg_img_name]))):
-            print(train_modlt)
-            modlt_imgs.append(load_3d_volume_as_array(os.path.join(patient_path, train_modlt)))
-        for xth_layer in range(int(num_layers*0.25), int(num_layers*0.75)):
-
-            # only grab image slices without labeled cancer
-            if (data == "healthy"):
-                if seg_lyr_sums[xth_layer] == 0: # If sum of damaged cells == 0
-                    img_mod_list = []
-                    ample_info_check = False
-                    for modlt_img in modlt_imgs:
-                        img_mod_list.append(modlt_img[xth_layer])
-                        if (np.sum(modlt_img[xth_layer])) > 5000000:
-                            ample_info_check = True
-                            count += 1
-                    if (ample_info_check):
-                        train_imgs.append(img_mod_list)
-
-            elif data == "unhealthy":
-                if seg_lyr_sums[xth_layer] > 8000:
-                    img_mod_list = []
-                    ample_info_check = False
-                    for modlt_img in modlt_imgs:
-                        img_mod_list.append(modlt_img[xth_layer])
-                        if (np.sum(modlt_img[xth_layer])) > 5000000:
-                            ample_info_check = True
-                            count += 1
-                    if (ample_info_check):
-                        train_imgs.append(img_mod_list)
-            else:
-                print("No such data")
-        break
-    return train_imgs
-    if save_method == "npy":
-        np.save("./dataset_" + data + ".npy", train_imgs)
-
-    elif save_method == "hdf5":
-        try:
-            hdf5_dataset = h5py.File("./dataset_" + data, "w")
-            dset = hdf5_dataset.create_dataset('train_imgs', data=train_imgs)
-        except:
-            hdf5_dataset = h5py.File("./dataset_" + data, "a")
-            del hdf5_dataset['train_imgs']
-            hdf5_dataset.create_dataset("train_imgs", data=train_imgs)
-            print('File already exists. Overwriting...')
-        hdf5_dataset.close()
-
-
-
-def get_small_dataset(folders, number = 10, save_method = "npy"):
-    healthy = []
-    unhealthy = []
-    mask = []
-    count = 0
-    current_healthy = 0
-    current_unhealthy = 0
-    imgs = []
-    stop = False
-    for patient_path in folders:
-        if not stop:
-            modalities = os.listdir(patient_path)
-
-            seg_img_name = [img for img in modalities if "seg.nii" in img][0]
-            seg_img = load_3d_volume_as_array(os.path.join(patient_path, seg_img_name))
-
-            num_layers = seg_img.shape[0]
-            seg_lyr_sums = [int(np.sum(img)) for img in seg_img]
-
-            modlt_imgs = []
-            for train_modlt in sorted(list(set(modalities) - set([seg_img_name]))):
-                print(train_modlt)
-                modlt_imgs.append(load_3d_volume_as_array(os.path.join(patient_path, train_modlt)))
-            for xth_layer in range(int(num_layers * 0.25), int(num_layers * 0.75)):
-                if (current_healthy < number) | (current_unhealthy < number):
-                    if seg_lyr_sums[xth_layer] == 0:  # If sum of damaged cells == 0
-                        if current_healthy < number:
-                            img_mod_list = []
-                            ample_info_check = False
-                            for modlt_img in modlt_imgs:
-                                img_mod_list.append(modlt_img[xth_layer])
-                                if (np.sum(modlt_img[xth_layer])) > 5000000:
-                                    ample_info_check = True
-                                    count += 1
-                            if (ample_info_check):
-                                healthy.append(img_mod_list)
-                            current_healthy += 1
-
-                    elif seg_lyr_sums[xth_layer] > 8000:
-                        if current_unhealthy < number:
-                            img_mod_list = []
-                            ample_info_check = False
-                            for modlt_img in modlt_imgs:
-                                img_mod_list.append(modlt_img[xth_layer])
-                                if (np.sum(modlt_img[xth_layer])) > 5000000:
-                                    ample_info_check = True
-                                    count += 1
-                            if (ample_info_check):
-                                unhealthy.append(img_mod_list)
-                            mask.append(seg_img[xth_layer])
-
-                            current_unhealthy += 1
-                else:
-                    stop = True
-
-
-    if save_method == "npy":
-        np.save("./dataset_" + str(number) + "healthy.npy", healthy)
-        np.save("./dataset_" + str(number) + "unhealthy.npy", unhealthy)
-        np.save("./dataset_" + str(number) + "mask.npy", mask)
-
-    elif save_method == "hdf5":
-        try:
-            hdf5_dataset = h5py.File("./dataset_" +  str(number), "w")
-            dset = hdf5_dataset.create_dataset('healthy', data=healthy)
-            dset = hdf5_dataset.create_dataset('unhealthy', data=unhealthy)
-            dset = hdf5_dataset.create_dataset('mask', data=mask)
-        except:
-            hdf5_dataset = h5py.File("./dataset_" +  str(number), "a")
-            del hdf5_dataset['healthy']
-            del hdf5_dataset['unhealthy']
-            del hdf5_dataset['mask']
-            dset = hdf5_dataset.create_dataset('healthy', data=healthy)
-            dset = hdf5_dataset.create_dataset('unhealthy', data=unhealthy)
-            dset = hdf5_dataset.create_dataset('mask', data=mask)
-            print('File already exists. Overwriting...')
-        hdf5_dataset.close()
-
-    return healthy,unhealthy,mask
-
-
-get_small_dataset(patient_folders)
+data ,_,_ = np.load("E:\\Lab\\resources\\dataset_split.npy",allow_pickle=True)
+data = utils.PreProcessor.augment(data[0:10])
+np.save("E:\\Lab\\resources\\dataset_healthy_aug_smaa.npy", data)
+save_images("E:\\Lab\\resources\\dataset_healthy_aug_smaa.npy")

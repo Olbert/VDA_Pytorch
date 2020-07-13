@@ -25,12 +25,9 @@ from sklearn.metrics import confusion_matrix
 import os
 import h5py
 
-
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 np.random.seed(0)
 random.seed(0)
-
-
 
 """# Loading Brats dataset"""
 
@@ -123,12 +120,102 @@ class DataLoader():
             hdf5_dataset.close()
         return train_imgs
 
+    def get_small_dataset(self, folders, number=10, save_method="npy"):
+        healthy = []
+        unhealthy = []
+        mask = []
+        count = 0
+        current_healthy = 0
+        current_unhealthy = 0
+        stop = False
+        for patient_path in folders:
+            if not stop:
+                modalities = os.listdir(patient_path)
+
+                seg_img_name = [img for img in modalities if "seg.nii" in img][0]
+                seg_img = DataLoader.load_3d_volume_as_array(os.path.join(patient_path, seg_img_name))
+
+                num_layers = seg_img.shape[0]
+                seg_lyr_sums = [int(np.sum(img)) for img in seg_img]
+
+                modlt_imgs = []
+                for train_modlt in sorted(list(set(modalities) - set([seg_img_name]))):
+                    print(train_modlt)
+                    modlt_imgs.append(DataLoader.load_3d_volume_as_array(os.path.join(patient_path, train_modlt)))
+                for xth_layer in range(int(num_layers * 0.25), int(num_layers * 0.75)):
+                    if (current_healthy < number) | (current_unhealthy < number):
+                        if seg_lyr_sums[xth_layer] == 0:  # If sum of damaged cells == 0
+                            if current_healthy < number:
+                                img_mod_list = []
+                                ample_info_check = False
+                                for modlt_img in modlt_imgs:
+                                    img_mod_list.append(modlt_img[xth_layer])
+                                    if (np.sum(modlt_img[xth_layer])) > 5000000:
+                                        ample_info_check = True
+                                        count += 1
+                                if (ample_info_check):
+                                    healthy.append(img_mod_list)
+                                current_healthy += 1
+
+                        elif seg_lyr_sums[xth_layer] > 8000:
+                            if current_unhealthy < number:
+                                img_mod_list = []
+                                ample_info_check = False
+                                for modlt_img in modlt_imgs:
+                                    img_mod_list.append(modlt_img[xth_layer])
+                                    if (np.sum(modlt_img[xth_layer])) > 5000000:
+                                        ample_info_check = True
+                                        count += 1
+                                if (ample_info_check):
+                                    unhealthy.append(img_mod_list)
+                                mask.append(seg_img[xth_layer])
+
+                                current_unhealthy += 1
+                    else:
+                        stop = True
+
+        if save_method == "npy":
+            np.save("./dataset_" + str(number) + "healthy.npy", healthy)
+            np.save("./dataset_" + str(number) + "unhealthy.npy", unhealthy)
+            np.save("./dataset_" + str(number) + "mask.npy", mask)
+
+        elif save_method == "hdf5":
+            try:
+                hdf5_dataset = h5py.File("./dataset_" + str(number), "w")
+                dset = hdf5_dataset.create_dataset('healthy', data=healthy)
+                dset = hdf5_dataset.create_dataset('unhealthy', data=unhealthy)
+                dset = hdf5_dataset.create_dataset('mask', data=mask)
+            except:
+                hdf5_dataset = h5py.File("./dataset_" + str(number), "a")
+                del hdf5_dataset['healthy']
+                del hdf5_dataset['unhealthy']
+                del hdf5_dataset['mask']
+                dset = hdf5_dataset.create_dataset('healthy', data=healthy)
+                dset = hdf5_dataset.create_dataset('unhealthy', data=unhealthy)
+                dset = hdf5_dataset.create_dataset('mask', data=mask)
+                print('File already exists. Overwriting...')
+            hdf5_dataset.close()
+
+        return healthy, unhealthy, mask
+
+
 class PreProcessor():
     """# Loading Training Data (Preprocessing)"""
 
     @staticmethod
-    def augment(data,percentage):
-        None
+    def augment(data, percentage=1, type="square", size=(15,50)):
+        length = int(data.shape[0] * percentage)
+        if type=="square":
+            for i in range(0, length):
+                cur_size = int(size[0]+ np.random.rand(1) * (size[1]-size[0]))
+                x = int(np.random.rand(1) * (data.shape[2] - cur_size))
+                y = int(np.random.rand(1) * (data.shape[3] - cur_size))
+                for x_id in range(0, cur_size):
+                    for y_id in range(0, cur_size):
+                        for mod in range(0, 3):
+                            data[i, mod, x + x_id, y + y_id] = 1
+
+        return data
 
     @staticmethod
     def show():
@@ -187,4 +274,3 @@ class PreProcessor():
     # plt.imshow(np.reshape(train_data[5][3], (240, 240)), cmap='gray')
     #
     # plt.imshow(np.reshape(train_data[5][3], (240, 240)))
-

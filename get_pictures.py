@@ -33,7 +33,7 @@ import os
 
 import utils
 
-import d_vae_main
+import main
 
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -53,10 +53,10 @@ patient_folders = [os.path.join(roots[0], p) for p in os.listdir(roots[0])] + \
 #data = np.load("./dataset.npy")
 #train_data, vald_data, test_data = PreProcessor.split(data, save=True)
 
-model = d_vae_main.dVAE()
+model = main.dVAE()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-checkpoint = torch.load("E:\\Lab\\Models\\Model_id_func.pt")
+checkpoint = torch.load("E:\\Lab\\Models\\Model_12_08.pt")
 model.load_state_dict(checkpoint['model_state_dict'])
 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 epoch = checkpoint['epoch']
@@ -73,7 +73,7 @@ loss = checkpoint['loss']
 model.eval()
 
 # _, _, test_data = np.load("E:\Lab\Lab_VDA_Local\dataset_split.npy", allow_pickle=True)
-test_data = np.load("E:\\Lab\\resources\\dataset_unhealthy.npy", allow_pickle=True)
+test_data = np.load("E:\\Lab\\resources\\dataset_healthy_aug.npy", allow_pickle=True)
 
 batch_size = 1
 
