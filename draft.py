@@ -47,14 +47,21 @@ def save100_images():
 def save_images(file):
     data = np.load(file)
     for i in range(0,data.shape[0]):
-        scipy.misc.imsave('E:\\Lab\\images\\aug\\img_0_'+str(i)+'.jpg', data[i,0])
-        scipy.misc.imsave('E:\\Lab\\images\\aug\\img_1_'+str(i)+'.jpg', data[i,1])
-        scipy.misc.imsave('E:\\Lab\\images\\aug\\img_2_'+str(i)+'.jpg', data[i,2])
-        scipy.misc.imsave('E:\\Lab\\images\\aug\\img_3_'+str(i)+'.jpg', data[i,3])
+        scipy.misc.imsave('E:\\Lab\\images\\augs\\img_0_'+str(i)+'.jpg', data[i,0])
+        scipy.misc.imsave('E:\\Lab\\images\\augs\\img_1_'+str(i)+'.jpg', data[i,1])
+        scipy.misc.imsave('E:\\Lab\\images\\augs\\img_2_'+str(i)+'.jpg', data[i,2])
+        scipy.misc.imsave('E:\\Lab\\images\\augs\\img_3_'+str(i)+'.jpg', data[i,3])
 
 
 
-data ,_,_ = np.load("E:\\Lab\\resources\\dataset_split.npy",allow_pickle=True)
-data = utils.PreProcessor.augment(data[0:10])
-np.save("E:\\Lab\\resources\\dataset_healthy_aug_smaa.npy", data)
-save_images("E:\\Lab\\resources\\dataset_healthy_aug_smaa.npy")
+# data ,_,_ = np.load("E:\\Lab\\resources\\dataset_split.npy",allow_pickle=True)
+# data = utils.PreProcessor.augment(data[0:10])
+# np.save("E:\\Lab\\resources\\dataset_healthy_aug_smaa.npy", data)
+# save_images("E:\\Lab\\resources\\dataset_healthy_aug_smaa.npy")
+
+# data = np.load("./dataset_10healthy.npy")
+# data = utils.PreProcessor.augment(data)
+# np.save("./dataset_10healthy.npy", data)
+# save_images("./dataset_10healthy.npy")
+
+utils.DataLoader.get_test_image(0, patient_folders[0],20)

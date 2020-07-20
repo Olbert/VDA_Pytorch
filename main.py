@@ -16,6 +16,7 @@ import utils
 import os
 from dvae import dVAE
 from vae import VAE
+from autoencoder import OrigAE
 torch.device("cuda")
 torch.set_default_tensor_type('torch.cuda.FloatTensor')
 transform = transforms.ToTensor()
@@ -39,6 +40,9 @@ if __name__ == '__main__':
 
     train_data, valid_data, test_data = np.load("E:\\Lab\\resources\\dataset_split.npy", allow_pickle=True)
     train_data_aug = np.load("E:\\Lab\\resources\\dataset_healthy_aug.npy", allow_pickle=True)
+    # valid_data = np.array((valid_data, valid_data))
+    # valid_data = np.swapaxes(valid_data, 0, 1)
+
     train_data = np.array((train_data, train_data_aug))
     train_data = np.swapaxes(train_data, 0, 1)
 
@@ -48,11 +52,13 @@ if __name__ == '__main__':
     test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True)
 
     # initialize the NN
-    model = dVAE()
+    model = VAE()
     # print(model)
     model.cuda()
     # specify loss function
-    criterion = nn.MSELoss()
+    #criterion = nn.MSELoss()
+
+    criterion = nn.KLDivLoss()
 
     # specify loss function
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -63,7 +69,10 @@ if __name__ == '__main__':
     for epoch in range(1, n_epochs + 1):
         # monitor training loss
         train_loss = 0.0
-
+        if epoch == 100:
+            for g in optimizer.param_groups:
+                print("Lerning Rate decreased")
+                g['lr'] = 0.001
         ###################
         # train the model #
         ###################
@@ -89,33 +98,29 @@ if __name__ == '__main__':
             optimizer.step()
             # update running training loss
             train_loss += loss.item() * y.size(0)
-
+            #print(loss.item())
         # print avg training statistics
         train_loss = train_loss / len(train_dataloader)
         print('Epoch: {} \tTraining Loss: {:.6f}'.format(
             epoch,
             train_loss
         ))
-        if epoch % 10 == 0:
+        if epoch % 100 == 0:
             with torch.no_grad():
                 valid_loss = []
                 current_valid_loss = 0.0
-                for batch_id, xy in enumerate(valid_dataloader):
-                    x = xy[:, 0, :, :]
-                    y = xy[:, 1, :, :]
+                for batch_id, x in enumerate(valid_dataloader):
+
                     optimizer.zero_grad()
                     x = x.float().cuda()
-                    y = y.float().cuda()
 
                     # forward pass: compute predicted outputs by passing inputs to the model
                     outputs, _, _ = model(x)
 
-                    x = x.cpu().detach().numpy()
                     # calculate the loss
                     outputs = F.pad(outputs, (8, 8, 8, 8, 0, 0, 0, 0), mode='constant', value=0)
-                    y.cuda()
                     outputs.cuda()
-                    loss = criterion(outputs, y)
+                    loss = criterion(outputs, x)
 
                     current_valid_loss += loss.item() * y.size(0)
                     valid_loss.append(current_valid_loss)
@@ -131,8 +136,10 @@ if __name__ == '__main__':
 
     # obtain one batch of test images
     dataiter = iter(train_dataloader)
-    images = dataiter.next().float()
 
+    batch_id, xy = dataiter.next().float()
+    images = xy[:, 0, :, :]
+    y = xy[:, 1, :, :]
     # get sample outputs
     output, _, _ = model(images)
     output = F.pad(output, (8, 8, 8, 8, 0, 0, 0, 0), mode='constant', value=0)

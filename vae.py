@@ -33,16 +33,16 @@ class VAE_Encoder(nn.Module):
         x = x.float().cuda()
         x = self.conv1(x)
         x = self.bn1(x)
-        print(x.shape)
+        # print(x.shape)
         x = self.conv2(F.leaky_relu(x))
         x = self.bn2(x)
-        print(x.shape)
+        # print(x.shape)
         x = self.conv3(F.leaky_relu(x))
         x = self.bn3(x)
-        print(x.shape)
+        # print(x.shape)
         x = self.conv4(F.leaky_relu(x))
         x = self.bn4(x)
-        print(x.shape)
+        # print(x.shape)
         # print("---------------------------------")
         # print(x.size())
         return x
@@ -57,25 +57,34 @@ class VAE_Decoder(nn.Module):
         self.conv3 = nn.ConvTranspose2d(64, 32, 4, stride=2, padding=1)
         self.conv4 = nn.ConvTranspose2d(64, 64, 4, stride=2, padding=1)
 
+        self.conv5 = nn.ConvTranspose2d(64, 64, 4, stride=2, padding=1)
+
         self.bn1 = nn.BatchNorm2d(4)
         self.bn2 = nn.BatchNorm2d(16)
         self.bn3 = nn.BatchNorm2d(32)
         self.bn4 = nn.BatchNorm2d(64)
 
+        self.bn5 = nn.BatchNorm2d(64)
+
     def forward(self, x):
         x = x.float().cuda()
+
+        x = self.conv5(x)
+        x = self.bn5(x)
+        # print(x.shape)
+
         x = self.conv4(x)
         x = self.bn4(x)
-        print(x.shape)
+        # print(x.shape)
         x = self.conv3(F.leaky_relu(x))
         x = self.bn3(x)
-        print(x.shape)
+        # print(x.shape)
         x = self.conv2(F.leaky_relu(x))
         x = self.bn2(x)
-        print(x.shape)
+        # print(x.shape)
         x = self.conv1(F.leaky_relu(x))
         x = self.bn1(x)
-        print(x.shape)
+        # print(x.shape)
         # print(x.size())
         return x
 
@@ -103,9 +112,9 @@ class VAE(nn.Module):
         logvar = self.conv_logvar(z)
 
         z = self.reparameterize(mu, logvar)
-        print("----------")
-        print(z.shape)
-        print("----------")
+        # print("----------")
+        # print(z.shape)
+        # print("----------")
         answer = self.decoder(z)
         return answer, mu, logvar
 

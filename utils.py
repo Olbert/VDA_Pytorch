@@ -198,6 +198,71 @@ class DataLoader():
 
         return healthy, unhealthy, mask
 
+    def get_test_image(self, folders, number=10, save_method="npy"):
+        healthy = []
+        unhealthy = []
+        mask = []
+        count = 0
+        current_healthy = 0
+        current_unhealthy = 0
+        stop = False
+        cc = 0
+        for patient_path in folders:
+            if cc < 100:
+                cc+=1
+                continue
+            if not stop:
+                modalities = os.listdir(patient_path)
+
+                seg_img_name = [img for img in modalities if "seg.nii" in img][0]
+                seg_img = DataLoader.load_3d_volume_as_array(os.path.join(patient_path, seg_img_name))
+
+                num_layers = seg_img.shape[0]
+                seg_lyr_sums = [int(np.sum(img)) for img in seg_img]
+
+                modlt_imgs = []
+                for train_modlt in sorted(list(set(modalities) - set([seg_img_name]))):
+                    print(train_modlt)
+                    modlt_imgs.append(DataLoader.load_3d_volume_as_array(os.path.join(patient_path, train_modlt)))
+
+                for xth_layer in range(int(num_layers * 0.25), int(num_layers * 0.75)):
+                    if (current_healthy < number) | (current_unhealthy < number):
+                        if seg_lyr_sums[xth_layer] > 8000:
+                            if current_unhealthy < number:
+                                img_mod_list = []
+                                ample_info_check = False
+                                for modlt_img in modlt_imgs:
+                                    img_mod_list.append(modlt_img[xth_layer])
+                                    if (np.sum(modlt_img[xth_layer])) > 5000000:
+                                        ample_info_check = True
+                                        count += 1
+                                if (ample_info_check):
+                                    unhealthy.append(img_mod_list)
+                                mask.append(seg_img[xth_layer])
+
+                                current_unhealthy += 1
+                    else:
+                        stop = True
+
+        if save_method == "npy":
+            np.save("./dataset_" + str(number) + "unhealthy.npy", unhealthy)
+            np.save("./dataset_" + str(number) + "mask.npy", mask)
+
+        elif save_method == "hdf5":
+            try:
+                hdf5_dataset = h5py.File("./dataset_" + str(number), "w")
+                dset = hdf5_dataset.create_dataset('unhealthy', data=unhealthy)
+                dset = hdf5_dataset.create_dataset('mask', data=mask)
+            except:
+                hdf5_dataset = h5py.File("./dataset_" + str(number), "a")
+                del hdf5_dataset['unhealthy']
+                del hdf5_dataset['mask']
+                dset = hdf5_dataset.create_dataset('unhealthy', data=unhealthy)
+                dset = hdf5_dataset.create_dataset('mask', data=mask)
+                print('File already exists. Overwriting...')
+            hdf5_dataset.close()
+
+        return healthy, unhealthy, mask
 
 class PreProcessor():
     """# Loading Training Data (Preprocessing)"""
