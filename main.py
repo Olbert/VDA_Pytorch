@@ -15,15 +15,81 @@ import matplotlib.pyplot as plt
 import utils
 import os
 from dvae import dVAE
-from vae import VAE
+from cvae import CVAE
+from vae_base import VAE_Base
 from autoencoder import OrigAE
+
 torch.device("cuda")
 torch.set_default_tensor_type('torch.cuda.FloatTensor')
 transform = transforms.ToTensor()
 import torch
 from torch.utils import data
 import random
+import h5py
 from torch.utils.data import dataloader, random_split
+import scipy.misc
+
+def loss_function(recon_x, x, mu, logvar):
+    recon_x = recon_x.cpu().detach().numpy()
+    BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
+
+    # see Appendix B from VAE paper:
+    # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
+    # https://arxiv.org/abs/1312.6114
+    # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
+    return BCE + KLD
+
+def to_distribution(D):
+    D_ = D.view(-1, D.shape[2], D.shape[3])
+    D_ = D_.view(D_.shape[0], -1)
+    D_norm = D.view(D.shape[0], D.shape[1], -1)
+    D_norm = D_norm.sum(dim=2).view(-1)
+    D = (D_/D_norm.unsqueeze(1)).view(*D.shape)
+    return D
+
+def elbo(recon_x, x, mu, logsig):
+
+        N, C, iw, ih = recon_x.shape
+        M=1
+        x = x.contiguous().view([N*M,C,iw,ih])
+        recon_x = recon_x.view([N,C,iw,ih])
+        loss = nn.CrossEntropyLoss()
+        BCE =  loss(recon_x, x)/ (N*M)
+        KLD_element = (logsig - mu**2 - torch.exp(logsig) + 1 )
+        KLD = - torch.mean(torch.sum(KLD_element* 0.5, dim=2) )
+
+        return BCE + KLD
+
+def loss_function(x,recon_x, mu, logsig):
+
+        N, C, iw, ih = x.shape
+        x_tile = x.repeat(8,1,1,1,1).permute(1,0,2,3,4)
+        #J = - self.log_likelihood_estimate(recon_x, x_tile, Z, mu, logsig)
+        J_low = elbo(recon_x, x, mu, logsig)
+        return J_low
+
+
+def loss_function_git(recons,input,mu,log_var):
+        """
+        Computes the VAE loss function.
+        KL(N(\mu, \sigma), N(0, 1)) = \log \frac{1}{\sigma} + \frac{\sigma^2 + \mu^2}{2} - \frac{1}{2}
+        :param args:
+        :param kwargs:
+        :return:
+        """
+        kld_weight = 0.5 # Account for the minibatch samples from the dataset
+        recons_loss =F.mse_loss(recons, input)
+
+        try:
+            kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0).sum()
+        except:
+            kld_loss = 0
+
+        loss = recons_loss + kld_weight * kld_loss
+        return loss
+
 
 if __name__ == '__main__':
 
@@ -33,159 +99,121 @@ if __name__ == '__main__':
     patient_folders = [os.path.join(roots[0], p) for p in os.listdir(roots[0])] + \
                       [os.path.join(roots[1], p) for p in os.listdir(roots[1])]
 
-    # data_full = utils.DataLoader.download_data(patient_folders)
+    file = "h5py"
+    if file == "npy":
+        train_data, valid_data, test_data = np.load("E:\\Lab\\resources\\dataset_split.npy", allow_pickle=True)
+        train_data_aug = np.load("E:\\Lab\\resources\\dataset_healthy_aug_new.npy", allow_pickle=True)
 
-    # data_full = np.load("dataset_healthy.npy")
-    # train_data, valid_data, test_data = utils.PreProcessor.split(data_full, True)
+    elif file == "h5py":
+        dataset = h5py.File("E:\\Lab\\resources\\dataset_healthy.h5", "r")
 
-    train_data, valid_data, test_data = np.load("E:\\Lab\\resources\\dataset_split.npy", allow_pickle=True)
-    train_data_aug = np.load("E:\\Lab\\resources\\dataset_healthy_aug.npy", allow_pickle=True)
-    # valid_data = np.array((valid_data, valid_data))
-    # valid_data = np.swapaxes(valid_data, 0, 1)
+        train_data, valid_data, _ = dataset["train_imgs"], dataset["valid_imgs"], dataset["test_imgs"]
+        dataset = h5py.File("E:\\Lab\\resources\\dataset_healthy_aug.h5", "r")
+
+        train_data_aug = dataset["train_imgs"]
 
     train_data = np.array((train_data, train_data_aug))
     train_data = np.swapaxes(train_data, 0, 1)
 
     batch_size = 8
     train_dataloader = torch.utils.data.DataLoader(train_data[0:100], batch_size=batch_size, shuffle=True)
-    valid_dataloader = torch.utils.data.DataLoader(valid_data[0:50], batch_size=batch_size, shuffle=True)
-    test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True)
+    valid_dataloader = torch.utils.data.DataLoader(valid_data[0:10], batch_size=batch_size, shuffle=True)
+    # test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True)
 
     # initialize the NN
-    model = VAE()
+    model = dVAE()
     # print(model)
     model.cuda()
     # specify loss function
-    #criterion = nn.MSELoss()
+    criterion = nn.MSELoss()
 
-    criterion = nn.KLDivLoss()
+    # criterion = nn.CrossEntropyLoss()
 
     # specify loss function
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
     # number of epochs to train the model
-    n_epochs = 1000
-
+    n_epochs = 500
+    train_loss_data = []
+    valid_loss = []
+    valid_loss1 =[]
     for epoch in range(1, n_epochs + 1):
         # monitor training loss
         train_loss = 0.0
-        if epoch == 100:
+        if epoch == 300:
             for g in optimizer.param_groups:
                 print("Lerning Rate decreased")
-                g['lr'] = 0.001
+                g['lr'] = 0.01
         ###################
         # train the model #
         ###################
         for batch_id, xy in enumerate(train_dataloader):
-            x = xy[:, 0, :, :]
-            y = xy[:, 1, :, :]
+            img = xy[:, 0, :, :]
+            aug_img = xy[:, 1, :, :]
             optimizer.zero_grad()
-            x = x.float().cuda()
-            y = y.float().cuda()
+            img = img.float().cuda()
+            aug_img = aug_img.float().cuda()
+
 
             # forward pass: compute predicted outputs by passing inputs to the model
-            outputs, _, _ = model(x)
+            outputs, mu, logvar = model(aug_img)
 
-            x = x.cpu().detach().numpy()
-            # calculate the loss
-            outputs = F.pad(outputs, (8, 8, 8, 8, 0, 0, 0, 0), mode='constant', value=0)
-            y.cuda()
-            outputs.cuda()
-            loss = criterion(outputs, y)
-            # backward pass: compute gradient of the loss with respect to model parameters
+            #outputs = to_distribution(outputs)
+            # x1 = to_distribution(x)
+
+            loss = loss_function_git(outputs, img, mu, logvar)
+
+            loss1 = criterion(img, outputs)
+
             loss.backward()
+
             # perform a single optimization step (parameter update)
             optimizer.step()
             # update running training loss
-            train_loss += loss.item() * y.size(0)
-            #print(loss.item())
+            train_loss += loss.item() * aug_img.size(0)
+
         # print avg training statistics
         train_loss = train_loss / len(train_dataloader)
+        train_loss_data.append(train_loss)
         print('Epoch: {} \tTraining Loss: {:.6f}'.format(
             epoch,
             train_loss
         ))
-        if epoch % 100 == 0:
+        if epoch % 10 == 0:
             with torch.no_grad():
-                valid_loss = []
-                current_valid_loss = 0.0
-                for batch_id, x in enumerate(valid_dataloader):
 
+                current_valid_loss = 0.0
+                for batch_id, img in enumerate(valid_dataloader):
                     optimizer.zero_grad()
-                    x = x.float().cuda()
+                    img = img.float().cuda()
 
                     # forward pass: compute predicted outputs by passing inputs to the model
-                    outputs, _, _ = model(x)
+                    outputs, mu, logvar = model(img)
 
                     # calculate the loss
-                    outputs = F.pad(outputs, (8, 8, 8, 8, 0, 0, 0, 0), mode='constant', value=0)
+                    # outputs = F.pad(outputs, (8, 8, 8, 8, 0, 0, 0, 0), mode='constant', value=0)
                     outputs.cuda()
-                    loss = criterion(outputs, x)
+                    outputs = to_distribution(outputs)
+                    img = to_distribution(img)
 
-                    current_valid_loss += loss.item() * y.size(0)
-                    valid_loss.append(current_valid_loss)
+                    loss = loss_function_git(outputs, img, mu, logvar)
+                    loss1 = criterion(img, outputs)
+
+                    current_valid_loss += loss1.item() * img.size(0)
+                    valid_loss1.append(current_valid_loss)
+                    valid_loss.append(loss.item() * img.size(0))
             # noinspection PyUnresolvedReferences
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': current_valid_loss
-            }, "./Model_12_08.pt")
+            }, "./Model_22_08.pt")
 
     # torch.save(model.state_dict(), "./Model_10_08.pt")
-
-    # obtain one batch of test images
-    dataiter = iter(train_dataloader)
-
-    batch_id, xy = dataiter.next().float()
-    images = xy[:, 0, :, :]
-    y = xy[:, 1, :, :]
-    # get sample outputs
-    output, _, _ = model(images)
-    output = F.pad(output, (8, 8, 8, 8, 0, 0, 0, 0), mode='constant', value=0)
-    # prep images for display
-    images = images.cpu().numpy()
-
-    # output is resized into a batch of iages
-    output = output.view(batch_size, 4, 240, 240)
-    # use detach when it's an output that requires_grad
-    output = output.cpu().detach().numpy()
-
-    # plot the first ten input images and then reconstructed images
-    # fig, axes = plt.subplots(nrows=2, ncols=10, sharex=True, sharey=True, figsize=(25, 4))
-
-    f1 = plt.figure(figsize=(12, 12))
-    ax1 = f1.add_subplot(221)
-    ax2 = f1.add_subplot(222)
-    ax3 = f1.add_subplot(223)
-    ax4 = f1.add_subplot(224)
-
-    ax1.imshow(images[1][0], cmap="gray")
-    ax2.imshow(images[1][1], cmap="gray")
-    ax3.imshow(images[1][2], cmap="gray")
-    ax4.imshow(images[1][3], cmap="gray")
+    plt.plot(train_loss_data)
     plt.show()
-
-    f2 = plt.figure(figsize=(12, 12))
-    ax5 = f2.add_subplot(221)
-    ax6 = f2.add_subplot(222)
-    ax7 = f2.add_subplot(223)
-    ax8 = f2.add_subplot(224)
-
-    ax5.imshow(output[0][0], cmap="gray")
-    ax6.imshow(output[0][1], cmap="gray")
-    ax7.imshow(output[0][2], cmap="gray")
-    ax8.imshow(output[0][3], cmap="gray")
+    plt.plot(valid_loss)
     plt.show()
-
-    f3 = plt.figure(figsize=(12, 12))
-    ax11 = f3.add_subplot(221)
-    ax12 = f3.add_subplot(222)
-    ax13 = f3.add_subplot(223)
-    ax14 = f3.add_subplot(224)
-
-    ax11.imshow(output[0][0] - images[1][0], cmap="gray")
-    ax12.imshow(output[0][1] - images[1][1], cmap="gray")
-    ax13.imshow(output[0][2] - images[1][2], cmap="gray")
-    ax14.imshow(output[0][3] - images[1][3], cmap="gray")
+    plt.plot(valid_loss1)
     plt.show()

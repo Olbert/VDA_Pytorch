@@ -58,10 +58,11 @@ class DataLoader():
 
     @staticmethod
     def download_data(folders, threshold=5000000, data="healthy", mode="full", save_method="npy"):
-        train_imgs = []
+        imgs = []
         count = 0
         k = 0
         imgs = []
+        mask = []
         for patient_path in folders:
 
             modalities = os.listdir(patient_path)
@@ -70,7 +71,7 @@ class DataLoader():
             seg_img = DataLoader.load_3d_volume_as_array(os.path.join(patient_path, seg_img_name))
 
             num_layers = seg_img.shape[0]
-            seg_lyr_sums = [int(np.sum(img)) for img in seg_img]
+            damaged_sums = [int(np.sum(img)) for img in seg_img]
 
             modlt_imgs = []
             for train_modlt in sorted(list(set(modalities) - set([seg_img_name]))):
@@ -80,7 +81,7 @@ class DataLoader():
 
                 # only grab image slices without labeled cancer
                 if (data == "healthy"):
-                    if seg_lyr_sums[xth_layer] == 0:  # If sum of damaged cells == 0
+                    if damaged_sums[xth_layer] == 0:  # If sum of damaged cells == 0
                         img_mod_list = []
                         ample_info_check = False
                         for modlt_img in modlt_imgs:
@@ -89,10 +90,10 @@ class DataLoader():
                                 ample_info_check = True
                                 count += 1
                         if (ample_info_check):
-                            train_imgs.append(img_mod_list)
+                            imgs.append(img_mod_list)
 
                 elif data == "unhealthy":
-                    if seg_lyr_sums[xth_layer] > 8000:
+                    if damaged_sums[xth_layer] > 8000:
                         img_mod_list = []
                         ample_info_check = False
                         for modlt_img in modlt_imgs:
@@ -101,24 +102,44 @@ class DataLoader():
                                 ample_info_check = True
                                 count += 1
                         if (ample_info_check):
-                            train_imgs.append(img_mod_list)
+                            imgs.append(img_mod_list)
+
+                elif data == "mask":
+                    if damaged_sums[xth_layer] > 8000:
+                        img_mod_list = []
+                        ample_info_check = False
+                        for modlt_img in modlt_imgs:
+                            img_mod_list.append(seg_img[xth_layer])
+                            if (np.sum(modlt_img[xth_layer])) > 5000000:
+                                ample_info_check = True
+                                count += 1
+                        if (ample_info_check):
+                            imgs.append(img_mod_list)
+
                 else:
                     print("No such data")
 
+
         if save_method == "npy":
-            np.save("./dataset_" + data + ".npy", train_imgs)
+            np.save("./dataset_"+data+".npy", imgs)
 
         elif save_method == "hdf5":
             try:
-                hdf5_dataset = h5py.File("./dataset_" + data, "w")
-                dset = hdf5_dataset.create_dataset('train_imgs', data=train_imgs)
+                hdf5_dataset = h5py.File("./dataset.h5", "w")
+                dset = hdf5_dataset.create_dataset(data, data=imgs)
             except:
-                hdf5_dataset = h5py.File("./dataset_" + data, "a")
-                del hdf5_dataset['train_imgs']
-                hdf5_dataset.create_dataset("train_imgs", data=train_imgs)
-                print('File already exists. Overwriting...')
+                a = 0
+                # hdf5_dataset = h5py.File("./dataset.h5", "a")
+                # del hdf5_dataset['healthy']
+                # del hdf5_dataset['unhealthy']
+                # del hdf5_dataset['mask']
+                # dset = hdf5_dataset.create_dataset('healthy', data=healthy)
+                # dset = hdf5_dataset.create_dataset('unhealthy', data=unhealthy)
+                # dset = hdf5_dataset.create_dataset('mask', data=mask)
+                # print('File already exists. Overwriting...')
             hdf5_dataset.close()
-        return train_imgs
+
+        return imgs
 
     def get_small_dataset(self, folders, number=10, save_method="npy"):
         healthy = []
@@ -267,10 +288,11 @@ class DataLoader():
 class PreProcessor():
     """# Loading Training Data (Preprocessing)"""
 
+
     @staticmethod
-    def augment(data, percentage=1, type="square", size=(15,50)):
+    def augment(data, percentage=1, count = 1, type="all", size=(15,40)):
         length = int(data.shape[0] * percentage)
-        if type=="square":
+        if type == "square":
             for i in range(0, length):
                 cur_size = int(size[0]+ np.random.rand(1) * (size[1]-size[0]))
                 x = int(np.random.rand(1) * (data.shape[2] - cur_size))
@@ -279,33 +301,31 @@ class PreProcessor():
                     for y_id in range(0, cur_size):
                         for mod in range(0, 3):
                             data[i, mod, x + x_id, y + y_id] = 1
+        if type == "all":
+            for i in range(0, length):
+                for k in range(0,count):
+                    type = int(np.random.rand(1) * 2) # Square or circle
+                    colour = int(np.random.rand(1) * 2) * np.max(data[i])
+                    if type == 0: # square
+                        cur_size = int(size[0]+ np.random.rand(1) * (size[1]-size[0]))
+                        x = int(np.random.rand(1) * (data.shape[2] - cur_size))
+                        y = int(np.random.rand(1) * (data.shape[3] - cur_size))
+                        for x_id in range(0, cur_size):
+                            for y_id in range(0, cur_size):
+                                for mod in range(0, 3):
+                                    data[i, mod, x + x_id, y + y_id] = colour
+                    elif type == 1: # circle
+                        r = int(size[0] + np.random.rand(1) * (size[1]-size[0]))
+                        a = int(np.random.rand(1) * (data.shape[2] - r))
+                        b = int(np.random.rand(1) * (data.shape[3] - r))
+                        n = data.shape[2]
+
+                        y, x = np.ogrid[-a:n - a, -b:n - b]
+                        mask = x * x + y * y <= r * r
+
+                        data[i, :, mask] = colour
 
         return data
-
-    @staticmethod
-    def show():
-        train_imgs = np.load("./dataset.npy")
-        print(train_imgs.shape)
-
-        train_imgs = np.array(train_imgs)
-        train_imgs = train_imgs.reshape(-1, 4 * 240 * 240)
-        print(train_imgs.shape)
-        scaler = MinMaxScaler()
-        scaler.fit(train_imgs)
-        train_imgs = scaler.transform(train_imgs)
-        train_imgs = np.reshape(train_imgs, (-1, 4, 240, 240))
-        print(train_imgs.shape)
-
-        f1 = plt.figure(figsize=(12, 12))
-        ax1 = f1.add_subplot(221)
-        ax2 = f1.add_subplot(222)
-        ax3 = f1.add_subplot(223)
-        ax4 = f1.add_subplot(224)
-        num = 10
-        ax1.imshow(train_imgs[num][0], cmap="gray")
-        ax2.imshow(train_imgs[num][1], cmap="gray")
-        ax3.imshow(train_imgs[num][2], cmap="gray")
-        ax4.imshow(train_imgs[num][3], cmap="gray")
 
     """# Splitting Data into training Validation and Test set"""
 
