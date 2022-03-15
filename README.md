@@ -33,7 +33,7 @@ Training parameters as well as the preprocessed data are availiable in the files
 Please cite as 
 
 ```bibtex
-@mastersthesis{domain_shift,
+@mastersthesis{CVAE_anom_segm,
   author       = {Albert Gubaidullin}, 
   title        = {Unsupervised Anomaly Segmentation in Brain MR Images using Context Variational Autoencoder},
   school       = {University of Bonn},
