@@ -16,9 +16,6 @@ between two images and applying Gaussian Mixture Model we are able to outline th
 -----
 
 * [Dataset](#dataset)
-* [Training](#train-a-new-model)
-* [Visualisation](#visualise-a-model)
-* [License](#license)
 * [Citation](#citation)
 
 ------
@@ -28,7 +25,7 @@ between two images and applying Gaussian Mixture Model we are able to outline th
 BRATS 2019 dataset was used for training and all experiments.
 It can be downloaded here: [https://www.med.upenn.edu/cbica/brats2019/data.html]
 
-### Prepare your own dataset
+Training parameters as well as the preprocessed data are availiable in the files.
 
 
 ## Citation
